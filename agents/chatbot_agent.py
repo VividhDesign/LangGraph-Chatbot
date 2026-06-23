@@ -153,7 +153,7 @@ def chatbot_node(state: AgentState) -> dict:
     llm = get_llm(temperature=0.7)
 
     user_query = state["user_query"]
-    existing_messages = state.get("messages", [])
+    existing_messages = state.get("chat_history", [])
     if not isinstance(existing_messages, list):
         existing_messages = []
 
@@ -248,7 +248,7 @@ def chatbot_node(state: AgentState) -> dict:
     ]
 
     return {
-        "messages": updated_messages,
+        "chat_history": updated_messages,
         "search_results": search_results,
         "should_search": needs_search,
         "final_response": answer,

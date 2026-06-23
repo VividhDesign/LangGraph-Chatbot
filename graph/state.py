@@ -1,26 +1,19 @@
 """
-graph/state.py - Defines the "shared notebook" that
-all agents read and write to.
+graph/state.py - Defines the shared state for the LangGraph chatbot.
 
-In LangGraph, every node reads from state and writes back to state.
-Think of it like a shared Google Doc that everyone updates as the chat progresses.
-
-NOTE: We use plain `list` for messages (not `add_messages` reducer) because
-the add_messages reducer in newer LangGraph versions has compatibility issues.
-We manage message appending manually inside chatbot_node instead.
+NOTE: We use 'chat_history' (not 'messages') because newer LangGraph versions
+treat any field named 'messages' as special and auto-apply add_messages reducer,
+which causes compatibility crashes. Renaming avoids all of that magic.
 """
 
 from __future__ import annotations
 from typing import Optional
 from typing_extensions import TypedDict
 
-class AgentState(TypedDict):
-    """
-    The SHARED STATE - the "memory" of the entire conversation graph.
-    """
 
-    # Full conversation history - plain list, we manage appending ourselves
-    messages: list
+class AgentState(TypedDict):
+    # Full conversation history (plain list - we manage appending ourselves)
+    chat_history: list
 
     # The current user question
     user_query: str
@@ -34,11 +27,11 @@ class AgentState(TypedDict):
     # The final answer produced by the chatbot
     final_response: Optional[str]
 
-    # Unique session ID (so different users don't mix up their chat histories)
+    # Unique session ID
     session_id: str
 
-    # Running summary of messages older than the last MAX_HISTORY.
+    # Running summary of older messages
     conversation_summary: Optional[str]
 
-    # How many messages from the start have been compressed into the summary
+    # How many messages have been compressed into the summary
     summarized_up_to: int
