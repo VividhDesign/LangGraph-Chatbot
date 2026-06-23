@@ -241,13 +241,17 @@ def chatbot_node(state: AgentState) -> dict:
     
     # we returna a dict - LangGraph merges this into the shared state automatically
 
+    from langchain_core.messages import HumanMessage as HM, AIMessage as AM
+    updated_messages = list(existing_messages) + [
+        HM(content=user_query),
+        AM(content=answer),
+    ]
+
     return {
-        "messages": [HumanMessage(content = user_query),
-        AIMessage(content = answer), 
-        ],
-        "search_results" : search_results,
-        "should_search" : needs_search, 
-        "final_response" : answer,
-        "conversation_summary" : new_summary, 
-        "summarized_up_to" : new_summarized_up_to
+        "messages": updated_messages,
+        "search_results": search_results,
+        "should_search": needs_search,
+        "final_response": answer,
+        "conversation_summary": new_summary,
+        "summarized_up_to": new_summarized_up_to,
     }

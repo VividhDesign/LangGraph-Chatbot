@@ -86,12 +86,13 @@ def run_chat(user_message: str, session_id: str) -> dict:
     # LangGraph will fill in the rest using defaults from prior checkpoints.
     initial_state = {
         "user_query": user_message,
+        "messages": [],            # will be loaded from checkpoint by LangGraph
         "search_results": [],
         "should_search": False,
         "final_response": None,
         "session_id": session_id,
-        "conversation_summary" : None, 
-        "summarized_up_to" : 0, 
+        # NOTE: conversation_summary and summarized_up_to are NOT set here
+        # so LangGraph loads them from the checkpoint on subsequent calls
     }
 
     #invoke() runs the graph synchronously and returns the final state
