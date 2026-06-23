@@ -199,16 +199,9 @@ def chatbot_node(state: AgentState) -> dict:
     #add user profile if one exists (loaded from profile.json on disk)
     user_profile = load_profile()
     if user_profile:
-        system_content += (
-            f"\n\n[What you know about the user - use naturally dont assume it]\n" + 
-            user_profile + "\n[end of user profile]"
-        )
-    #add within session summary if it exists
+        system_content += f"\n\n[What you know about the user - use naturally, don't announce it]\n{user_profile}\n[End of user profile]"
     if new_summary:
-        system_content += (
-            f"\n\n[earlier conversation summary - use this as background context]\n" + 
-            new_summary + "\n[End of summary]"
-        )
+        system_content += f"\n\n[Earlier conversation summary - use as background context]\n{new_summary}\n[End of summary]"
 
     # Now build the messages list — only ONE SystemMessage, everything merged in
     messages_to_send = [SystemMessage(content=system_content)]
