@@ -13,6 +13,7 @@ import streamlit as st
 import uuid
 import json
 import os
+import traceback
 from datetime import datetime
 from database.profile_manager import load_profile, save_profile, update_profile
 
@@ -487,7 +488,9 @@ if (send_clicked or st.session_state.submitted) and user_input.strip():
                 ai_response = result["response"]
                 used_search = result["used_search"]
             except Exception as e:
-                ai_response = f"❌ Error: {str(e)}"
+                full_trace = traceback.format_exc()
+                print(f"[ERROR] {full_trace}")
+                ai_response = f"❌ Error: {str(e)}\n\n```\n{full_trace}\n```"
                 used_search = False
 
     # Add AI reply to the ACTIVE SESSION's history
