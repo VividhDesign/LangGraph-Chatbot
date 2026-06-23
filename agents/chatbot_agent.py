@@ -16,6 +16,22 @@ from config import get_llm, MAX_HISTORY
 from tools.search_tool import web_search
 from database.profile_manager import load_profile
 
+
+def extract_text(content) -> str:
+    """
+    Safely extracts plain text from LLM response content.
+    Newer langchain-google-genai returns a list of dicts like:
+        [{'type': 'text', 'text': '...', 'extras': {...}}]
+    Older versions return a plain string.
+    This function handles BOTH so the app works locally and on Streamlit Cloud.
+    """
+    if isinstance(content, list):
+        return " ".join(
+            part.get("text", "") for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return str(content)
+
 ## -- System prompt 
 # this is a "personality" and "instructions" for our chatbot.
 # it is sent to Gemini every time as context.
@@ -83,9 +99,9 @@ def create_summary(newly_old_messages:list, existing_summary:str, llm) -> str:
     new_text = ""
     for msg in newly_old_messages:
         if isinstance(msg, HumanMessage):
-            new_text += f"User: {msg.content}\n"
+            new_text += f"User: {extract_text(msg.content)}\n"
         elif isinstance(msg, AIMessage):
-            new_text += f"Assistant: {msg.content}\n"
+            new_text += f"Assistant: {extract_text(msg.content)}\n"
     
     #step 2 : build the prompt for gemini
     if existing_summary:
@@ -110,7 +126,7 @@ Conversation:
         SystemMessage(content = "You are a conversation summarizer. Be brief and factual."),
         HumanMessage(content = prompt),
     ])
-    return response.content
+    return extract_text(response.content)
 
 
 
@@ -223,13 +239,7 @@ def chatbot_node(state: AgentState) -> dict:
     # [{'type': 'text', 'text': '...', 'extras': {...}}]
     # Older versions return a plain string. Handle both.
     raw = response.content
-    if isinstance(raw, list):
-        answer = " ".join(
-            part.get("text", "") for part in raw
-            if isinstance(part, dict) and part.get("type") == "text"
-        )
-    else:
-        answer = raw
+    answer = extract_text(raw)
 
     #step 5: return updated state
     
