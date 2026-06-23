@@ -154,24 +154,27 @@ def chatbot_node(state: AgentState) -> dict:
 
     user_query = state["user_query"]
     existing_messages = state.get("messages", [])
+    if not isinstance(existing_messages, list):
+        existing_messages = []
+
+    existing_summary = state.get("conversation_summary", None)
+    if existing_summary is not None and not isinstance(existing_summary, str):
+        existing_summary = str(existing_summary) if existing_summary else None
+
+    summarized_up_to = state.get("summarized_up_to", 0)
+    if not isinstance(summarized_up_to, int):
+        summarized_up_to = 0
 
     # Step 1: decide if web search is needed
-
     needs_search = should_search_web(user_query)
     search_results = []
 
-    # Step 2: Perform web search if needed 
-
+    # Step 2: Perform web search if needed
     if needs_search:
         print(f"Searching web for {user_query}")
-        search_results = web_search(user_query, max_results = 3)
-    
-    #Step 3: Build the prompt using summary + recent messages
+        search_results = web_search(user_query, max_results=3)
 
-    #read summary related fields from state
-    existing_summary = state.get("conversation_summary", None)
-    summarized_up_to = state.get("summarized_up_to", 0)
-
+    # Step 3: Build the prompt using summary + recent messages
     if len(existing_messages) > MAX_HISTORY:
         # there are messages beyond the recent 10
         newly_old = existing_messages[summarized_up_to : len(existing_messages) - MAX_HISTORY]
