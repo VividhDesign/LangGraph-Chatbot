@@ -218,7 +218,18 @@ def chatbot_node(state: AgentState) -> dict:
     #step 4: Call gemini
     print(f"[Chatbot] Calling gemini... (search = {'yes' if needs_search else 'no'})")
     response = llm.invoke(messages_to_send)
-    answer = response.content
+
+    # Newer langchain-google-genai returns content as a list of dicts:
+    # [{'type': 'text', 'text': '...', 'extras': {...}}]
+    # Older versions return a plain string. Handle both.
+    raw = response.content
+    if isinstance(raw, list):
+        answer = " ".join(
+            part.get("text", "") for part in raw
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    else:
+        answer = raw
 
     #step 5: return updated state
     
