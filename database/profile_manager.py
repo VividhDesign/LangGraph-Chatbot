@@ -1,15 +1,17 @@
 """
-database / profile _manager.py - manages the cross session user profile.
+database/profile_manager.py - Manages the cross-session user profile.
 
-The user profile is a short paragraph of key facts extracted by Gemini from the coversation histoyr.
-it s stored in profile.json and injected into every new session so the chatbot remembers the user.
-think of it like chatgpt s "memory" feature.
+The user profile is a short paragraph of key facts extracted by the LLM
+from the conversation history. It is stored in profile.json and injected
+into every new session so the chatbot remembers the user — similar to
+ChatGPT's "memory" feature.
 """
-import json  
+import json
 import os
-from langchain_core.messages import SystemMessage, HumanMessage 
+from langchain_core.messages import SystemMessage, HumanMessage
 
 PROFILE_FILE = "profile.json"
+
 
 def load_profile() -> str:
     """
@@ -22,7 +24,6 @@ def load_profile() -> str:
             with open(PROFILE_FILE, "r") as f:
                 data = json.load(f)
                 value = data.get("profile", "")
-                # Defensive: handle case where value was saved as a list
                 if isinstance(value, list):
                     return " ".join(
                         part.get("text", "") if isinstance(part, dict) else str(part)
@@ -33,6 +34,7 @@ def load_profile() -> str:
             return ""
     return ""
 
+
 def save_profile(profile_text: str):
     """Saves the user profile text to disk."""
     try:
@@ -42,9 +44,10 @@ def save_profile(profile_text: str):
     except Exception as e:
         print(f"[Profile] Could not save profile: {e}")
 
+
 def update_profile(recent_conversation: str, existing_profile: str, llm) -> str:
     """
-    Asks Gemini to update the user profile based on recent conversation.
+    Asks the LLM to update the user profile based on recent conversation.
     Always returns a plain string.
     """
     if existing_profile:
@@ -71,7 +74,6 @@ Write the user profile only (no extra text):"""
         SystemMessage(content="You extract and maintain concise user profiles for AI assistants."),
         HumanMessage(content=prompt),
     ])
-    # Handle both string and list response formats
     content = response.content
     if isinstance(content, list):
         return " ".join(
