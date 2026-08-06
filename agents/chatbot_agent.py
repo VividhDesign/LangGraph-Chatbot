@@ -11,6 +11,7 @@ and returns updated state out. Simple as that.
 """
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.runnables import RunnableConfig
 from graph.state import AgentState
 from config import get_llm, MAX_HISTORY
 from tools.search_tool import web_search
@@ -132,7 +133,7 @@ Conversation:
 
 
 
-def chatbot_node(state: AgentState) -> dict:
+def chatbot_node(state: AgentState, config: RunnableConfig = None) -> dict:
     """ 
     The main chatbot agent node - the heart of Langgraph graph.
     what it does step by step:
@@ -145,12 +146,18 @@ def chatbot_node(state: AgentState) -> dict:
 
     Args:
         state: the current AgentState(shared notebook)
+        config: LangGraph config dict containing optional model and api_key overrides
 
     Returns: 
         A dict with the fields we want to update in the state
     """
+    # Read model and api_key from LangGraph config if provided
+    cfg = (config or {}).get("configurable", {})
+    selected_model = cfg.get("model", None)
+    api_key = cfg.get("api_key", None)
+    provider = cfg.get("provider", "gemini")
 
-    llm = get_llm(temperature=0.7)
+    llm = get_llm(temperature=0.7, model=selected_model, api_key=api_key, provider=provider)
 
     user_query = state["user_query"]
     existing_messages = state.get("chat_history", [])

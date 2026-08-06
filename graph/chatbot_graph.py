@@ -33,12 +33,27 @@ def build_graph():
 chatbot_graph = build_graph()
 
 
-def run_chat(user_message: str, session_id: str) -> dict:
+def run_chat(user_message: str, session_id: str, model: str = None, api_key: str = None, provider: str = "gemini") -> dict:
     """
     Runs one turn of the chatbot conversation.
+
+    Args:
+        user_message: The user's input text.
+        session_id: Unique thread ID for conversation memory.
+        model: Optional model name override.
+        api_key: Optional API key override (from browser localStorage).
+        provider: "gemini" or "groq".
+
     Returns: {"response": str, "used_search": bool, "search_results": list}
     """
-    config = {"configurable": {"thread_id": session_id}}
+    config = {
+        "configurable": {
+            "thread_id": session_id,
+            "model": model,
+            "api_key": api_key,
+            "provider": provider,
+        }
+    }
 
     initial_state = {
         "user_query": user_message,
