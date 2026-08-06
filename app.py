@@ -352,32 +352,28 @@ if "forget_key_clicked" not in st.session_state:
 
 
 # ── localStorage JS Bridge ────────────────────────────────────────────────────
+# On every page load, this JS checks browser localStorage for saved API keys.
+# If they're not already present in the URL query params, it does a REAL
+# redirect (window.location.replace) so Python's st.query_params picks them up.
+# Once the keys are in the URL, the bridge is a no-op (prevents infinite loop).
 LS_BRIDGE_HTML = """
 <script>
 (function() {
-    const GEMINI_KEY = 'langgraph_chatbot_gemini_key';
-    const GROQ_KEY = 'langgraph_chatbot_groq_key';
-    
-    const savedGemini = localStorage.getItem(GEMINI_KEY);
-    const savedGroq = localStorage.getItem(GROQ_KEY);
-    
     const url = new URL(window.location.href);
-    let changed = false;
-    
-    if (savedGemini && !url.searchParams.get('_gemini_loaded')) {
-        url.searchParams.set('_gemini_ls', btoa(savedGemini));
-        url.searchParams.set('_gemini_loaded', '1');
-        changed = true;
-    }
-    if (savedGroq && !url.searchParams.get('_groq_loaded')) {
-        url.searchParams.set('_groq_ls', btoa(savedGroq));
-        url.searchParams.set('_groq_loaded', '1');
-        changed = true;
-    }
-    
-    if (changed) {
-        window.history.replaceState({}, '', url.toString());
-    }
+
+    // Keys are already in this URL — we're in the redirected load. Do nothing.
+    if (url.searchParams.has('_gemini_ls') || url.searchParams.has('_groq_ls')) return;
+
+    const gemini = localStorage.getItem('langgraph_chatbot_gemini_key');
+    const groq   = localStorage.getItem('langgraph_chatbot_groq_key');
+
+    if (!gemini && !groq) return;  // Nothing saved yet, show setup screen
+
+    if (gemini) url.searchParams.set('_gemini_ls', btoa(unescape(encodeURIComponent(gemini))));
+    if (groq)   url.searchParams.set('_groq_ls',   btoa(unescape(encodeURIComponent(groq))));
+
+    // Full page reload — Python will see the params in st.query_params
+    window.location.replace(url.toString());
 })();
 </script>
 """
@@ -385,27 +381,30 @@ LS_BRIDGE_HTML = """
 import streamlit.components.v1 as components
 components.html(LS_BRIDGE_HTML, height=0)
 
-# ── Read API keys from query params or env ────────────────────────────────────
+# ── Read API keys from URL query params (injected by JS bridge or Python) ─────
+import base64
 try:
     params = st.query_params
-    import base64
-    if params.get("_gemini_ls") and not st.session_state.google_api_key:
-        st.session_state.google_api_key = base64.b64decode(params.get("_gemini_ls")).decode("utf-8")
+    raw_gemini = params.get("_gemini_ls")
+    raw_groq   = params.get("_groq_ls")
+
+    if raw_gemini and not st.session_state.google_api_key:
+        st.session_state.google_api_key = base64.b64decode(raw_gemini + "==").decode("utf-8").strip()
         st.session_state.gemini_key_confirmed = True
-    if params.get("_groq_ls") and not st.session_state.groq_api_key:
-        st.session_state.groq_api_key = base64.b64decode(params.get("_groq_ls")).decode("utf-8")
+
+    if raw_groq and not st.session_state.groq_api_key:
+        st.session_state.groq_api_key = base64.b64decode(raw_groq + "==").decode("utf-8").strip()
         st.session_state.groq_key_confirmed = True
 except Exception:
     pass
 
-# Fallbacks for Gemini
+# Fallbacks — .env file or Streamlit secrets (for local dev / Streamlit Cloud)
 if not st.session_state.google_api_key:
     env_gemini = os.getenv("GOOGLE_API_KEY")
     if env_gemini:
         st.session_state.google_api_key = env_gemini
         st.session_state.gemini_key_confirmed = True
 
-# Fallbacks for Groq
 if not st.session_state.groq_api_key:
     env_groq = os.getenv("GROQ_API_KEY")
     if env_groq:
@@ -467,18 +466,25 @@ if needs_setup or st.session_state.forget_key_clicked:
         )
         if st.button("✅ Save & Start Chatting", use_container_width=True):
             if api_key_input.strip():
+                key_val = api_key_input.strip()
+                encoded = base64.b64encode(key_val.encode()).decode()
+
                 if setup_provider == "gemini":
-                    st.session_state.google_api_key = api_key_input.strip()
+                    st.session_state.google_api_key = key_val
                     st.session_state.gemini_key_confirmed = True
+                    # Write into URL params so Python sees it after rerun
+                    st.query_params["_gemini_ls"] = encoded
                 else:
-                    st.session_state.groq_api_key = api_key_input.strip()
+                    st.session_state.groq_api_key = key_val
                     st.session_state.groq_key_confirmed = True
-                    
+                    st.query_params["_groq_ls"] = encoded
+
                 st.session_state.forget_key_clicked = False
-                # Save to localStorage via JS
+
+                # Also save to localStorage so it survives future page loads
                 save_js = f"""
                 <script>
-                localStorage.setItem('{ls_key}', '{api_key_input.strip()}');
+                localStorage.setItem('{ls_key}', atob('{encoded}'));
                 </script>
                 """
                 components.html(save_js, height=0)
