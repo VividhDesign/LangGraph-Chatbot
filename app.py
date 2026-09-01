@@ -2,10 +2,11 @@
 app.py — Streamlit frontend for the LangGraph Chatbot.
 This is the ONLY file you need to run to start the chatbot.
 It provides a beautiful chat interface that:
-  - Shows a first-time API key setup screen (saved to browser localStorage)
+  - Loads API keys silently from .env or Streamlit Cloud secrets
   - Shows a sidebar with model selector, session list, and stats
   - Displays the full conversation history
   - Sends user messages to the LangGraph graph
+  - Streams responses word-by-word (like ChatGPT)
   - Shows an indicator when web search is used
   - Auto-renames new chats based on the first prompt using AI
   - Lets you clear the chat history
@@ -15,6 +16,7 @@ import streamlit as st
 import uuid
 import json
 import os
+import time
 import traceback
 from datetime import datetime
 from database.profile_manager import load_profile, save_profile, update_profile
@@ -47,7 +49,7 @@ st.markdown("""
     /* Main header */
     .main-header {
         text-align: center;
-        padding: 2rem 0 1rem 0;
+        padding: 1.5rem 0 0.5rem 0;
     }
     .main-header h1 {
         font-size: 2.2rem;
@@ -60,51 +62,6 @@ st.markdown("""
         font-size: 1rem;
         font-weight: 400;
     }
-
-    /* Chat message bubbles */
-    .user-bubble {
-        background: #2f2f2f;
-        color: #ececf1 !important;
-        padding: 0.8rem 1.2rem;
-        border-radius: 12px;
-        margin: 0.5rem 0;
-        max-width: 80%;
-        margin-left: auto;
-        font-size: 0.95rem;
-        line-height: 1.6;
-    }
-    .ai-bubble {
-        background: transparent;
-        color: #ececf1 !important;
-        padding: 0.8rem 0;
-        margin: 0.5rem 0;
-        max-width: 90%;
-        font-size: 0.95rem;
-        line-height: 1.7;
-    }
-
-    /* Search indicator badge */
-    .search-badge {
-        display: inline-block;
-        background: #343541;
-        border: 1px solid #565869;
-        color: #ececf1;
-        font-size: 0.72rem;
-        font-weight: 500;
-        padding: 0.2rem 0.6rem;
-        border-radius: 4px;
-        margin-bottom: 0.5rem;
-    }
-
-    /* Sender labels */
-    .sender-label {
-        font-size: 0.85rem;
-        font-weight: 600;
-        margin-bottom: 0.25rem;
-        color: #ececf1;
-    }
-    .sender-label.user { text-align: right; display: none; /* Hide user label to mimic ChatGPT */ }
-    .sender-label.ai   { text-align: left; }
 
     /* Sidebar styling */
     [data-testid="stSidebar"] {
@@ -130,28 +87,36 @@ st.markdown("""
         font-weight: 500;
     }
 
-    /* Input area */
-    .stTextInput > div > div > input,
-    [data-baseweb="input"] input,
-    [data-testid="stTextInput"] input {
+    /* Chat message containers — dark theme polish */
+    [data-testid="stChatMessage"] {
+        border-radius: 12px;
+        margin: 0.2rem 0;
+        font-size: 0.95rem;
+        line-height: 1.7;
+    }
+
+    /* Chat input area */
+    [data-testid="stChatInput"] textarea {
         background: #2f2f2f !important;
         border: 1px solid #424242 !important;
         border-radius: 12px !important;
         color: #ececf1 !important;
         font-size: 1rem !important;
-        padding: 0.85rem 1rem !important;
         caret-color: #10a37f !important;
     }
-    .stTextInput > div > div > input:focus,
-    [data-baseweb="input"] input:focus,
-    [data-testid="stTextInput"] input:focus {
+    [data-testid="stChatInput"] textarea:focus {
         border-color: #565869 !important;
         box-shadow: none !important;
         outline: none !important;
     }
-    .stTextInput > div > div > input::placeholder,
-    [data-baseweb="input"] input::placeholder {
+    [data-testid="stChatInput"] textarea::placeholder {
         color: #6b7280 !important;
+    }
+    /* Chat input send button */
+    [data-testid="stChatInput"] button {
+        background: #10a37f !important;
+        color: white !important;
+        border-radius: 8px !important;
     }
 
     /* Selectbox (model picker) */
@@ -176,11 +141,6 @@ st.markdown("""
         opacity: 0.9 !important;
     }
 
-    /* Clear button — red variant */
-    .clear-btn > button {
-        background: #dc2626 !important;
-    }
-
     /* Divider */
     hr { border-color: rgba(255,255,255,0.08) !important; }
 
@@ -188,37 +148,28 @@ st.markdown("""
     #MainMenu { visibility: hidden; }
     footer    { visibility: hidden; }
     header    { visibility: hidden; }
-
-    /* Scrollable chat area */
-    .chat-container {
-        max-height: 62vh;
-        overflow-y: auto;
-        padding-right: 0.5rem;
-    }
-
-    /* Setup screen card */
-    .setup-card {
-        max-width: 520px;
-        margin: 4rem auto;
-        background: #171717;
-        border: 1px solid #2f2f2f;
-        border-radius: 16px;
-        padding: 2.5rem;
-        text-align: center;
-    }
-    .setup-card h2 {
-        color: #ececf1;
-        font-size: 1.8rem;
-        margin-bottom: 0.5rem;
-    }
-    .setup-card p {
-        color: #9b9b9b;
-        font-size: 0.95rem;
-        margin-bottom: 1.5rem;
-        line-height: 1.6;
-    }
 </style>
 """, unsafe_allow_html=True)
+
+
+# ── API Key Helper ────────────────────────────────────────────────────────────
+def get_api_key(provider: str = "gemini") -> str:
+    """
+    Gets the API key from Streamlit Cloud secrets or environment variables.
+    No user input needed — key is pre-configured by the app owner.
+    """
+    if provider == "groq":
+        try:
+            return st.secrets["GROQ_API_KEY"]
+        except (KeyError, FileNotFoundError, AttributeError):
+            pass
+        return os.getenv("GROQ_API_KEY", "")
+    else:
+        try:
+            return st.secrets["GOOGLE_API_KEY"]
+        except (KeyError, FileNotFoundError, AttributeError):
+            pass
+        return os.getenv("GOOGLE_API_KEY", "")
 
 
 # ── Persistent sessions: save and load from JSON ──────────────────────────────
@@ -265,7 +216,7 @@ def get_active_session():
 
 
 # ── Helper: auto-rename chat using AI after first exchange ────────────────────
-def auto_rename_chat(session_id: str, first_user_msg: str, first_ai_msg: str, api_key: str = None, provider: str = "gemini"):
+def auto_rename_chat(session_id: str, first_user_msg: str, first_ai_msg: str, provider: str = "gemini"):
     """
     Calls the LLM to generate a short (≤5 words) title for the chat based
     on the first user message + AI reply. Updates the session name in place.
@@ -273,7 +224,7 @@ def auto_rename_chat(session_id: str, first_user_msg: str, first_ai_msg: str, ap
     try:
         from config import get_llm
         from langchain_core.messages import SystemMessage, HumanMessage
-        llm = get_llm(api_key=api_key, provider=provider)
+        llm = get_llm(provider=provider)
         prompt = (
             f"User asked: \"{first_user_msg}\"\n"
             f"Assistant replied: \"{first_ai_msg[:200]}\"\n\n"
@@ -302,6 +253,22 @@ def auto_rename_chat(session_id: str, first_user_msg: str, first_ai_msg: str, ap
         print(f"[Chat] Auto-rename failed: {e}")
 
 
+# ── Streaming helper ─────────────────────────────────────────────────────────
+def stream_response(text, placeholder):
+    """
+    Displays text word-by-word inside a Streamlit placeholder,
+    with a blinking cursor (▌) — exactly like ChatGPT.
+    """
+    displayed = ""
+    words = text.split(' ')
+    for i, word in enumerate(words):
+        displayed += word + (' ' if i < len(words) - 1 else '')
+        placeholder.markdown(displayed + " ▌")
+        time.sleep(0.03)
+    # Final render without cursor
+    placeholder.markdown(displayed)
+
+
 # ── Session state initialization ──────────────────────────────────────────────
 if "sessions" not in st.session_state:
     loaded = load_sessions_from_disk()
@@ -317,15 +284,6 @@ if "total_searches" not in st.session_state:
 if "total_messages" not in st.session_state:
     st.session_state.total_messages = 0
 
-if "graph_loaded" not in st.session_state:
-    st.session_state.graph_loaded = False
-
-if "input_counter" not in st.session_state:
-    st.session_state.input_counter = 0
-
-if "submitted" not in st.session_state:
-    st.session_state.submitted = False
-
 if "provider" not in st.session_state:
     st.session_state.provider = "gemini"
 
@@ -336,171 +294,8 @@ if "selected_groq_model" not in st.session_state:
     from config import DEFAULT_GROQ_MODEL
     st.session_state.selected_groq_model = DEFAULT_GROQ_MODEL
 
-# API key states
-if "google_api_key" not in st.session_state:
-    st.session_state.google_api_key = None
-if "groq_api_key" not in st.session_state:
-    st.session_state.groq_api_key = None
 
-if "gemini_key_confirmed" not in st.session_state:
-    st.session_state.gemini_key_confirmed = False
-if "groq_key_confirmed" not in st.session_state:
-    st.session_state.groq_key_confirmed = False
-
-if "forget_key_clicked" not in st.session_state:
-    st.session_state.forget_key_clicked = False
-
-
-# ── localStorage JS Bridge ────────────────────────────────────────────────────
-# On every page load, this JS checks browser localStorage for saved API keys.
-# If they're not already present in the URL query params, it does a REAL
-# redirect (window.location.replace) so Python's st.query_params picks them up.
-# Once the keys are in the URL, the bridge is a no-op (prevents infinite loop).
-LS_BRIDGE_HTML = """
-<script>
-(function() {
-    const url = new URL(window.location.href);
-
-    // Keys are already in this URL — we're in the redirected load. Do nothing.
-    if (url.searchParams.has('_gemini_ls') || url.searchParams.has('_groq_ls')) return;
-
-    const gemini = localStorage.getItem('langgraph_chatbot_gemini_key');
-    const groq   = localStorage.getItem('langgraph_chatbot_groq_key');
-
-    if (!gemini && !groq) return;  // Nothing saved yet, show setup screen
-
-    if (gemini) url.searchParams.set('_gemini_ls', btoa(unescape(encodeURIComponent(gemini))));
-    if (groq)   url.searchParams.set('_groq_ls',   btoa(unescape(encodeURIComponent(groq))));
-
-    // Full page reload — Python will see the params in st.query_params
-    window.location.replace(url.toString());
-})();
-</script>
-"""
-
-import streamlit.components.v1 as components
-components.html(LS_BRIDGE_HTML, height=0)
-
-# ── Read API keys from URL query params (injected by JS bridge or Python) ─────
-import base64
-try:
-    params = st.query_params
-    raw_gemini = params.get("_gemini_ls")
-    raw_groq   = params.get("_groq_ls")
-
-    if raw_gemini and not st.session_state.google_api_key:
-        st.session_state.google_api_key = base64.b64decode(raw_gemini + "==").decode("utf-8").strip()
-        st.session_state.gemini_key_confirmed = True
-
-    if raw_groq and not st.session_state.groq_api_key:
-        st.session_state.groq_api_key = base64.b64decode(raw_groq + "==").decode("utf-8").strip()
-        st.session_state.groq_key_confirmed = True
-except Exception:
-    pass
-
-# Fallbacks — .env file or Streamlit secrets (for local dev / Streamlit Cloud)
-if not st.session_state.google_api_key:
-    env_gemini = os.getenv("GOOGLE_API_KEY")
-    if env_gemini:
-        st.session_state.google_api_key = env_gemini
-        st.session_state.gemini_key_confirmed = True
-
-if not st.session_state.groq_api_key:
-    env_groq = os.getenv("GROQ_API_KEY")
-    if env_groq:
-        st.session_state.groq_api_key = env_groq
-        st.session_state.groq_key_confirmed = True
-
-
-# ── First-time API Key Setup Screen ──────────────────────────────────────────
-# Check if the CURRENT provider has a confirmed API key
-needs_setup = False
-if st.session_state.provider == "gemini" and not st.session_state.gemini_key_confirmed:
-    needs_setup = True
-elif st.session_state.provider == "groq" and not st.session_state.groq_key_confirmed:
-    needs_setup = True
-
-if needs_setup or st.session_state.forget_key_clicked:
-    st.markdown("""
-    <div class="setup-card">
-        <div style="font-size: 3.5rem; margin-bottom: 1rem;">🔑</div>
-        <h2>Welcome to LangGraph Chatbot</h2>
-        <p>
-            To get started, enter your API key for the selected provider.<br>
-            It will be saved in your browser so you won't need to enter it again.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    col_a, col_b, col_c = st.columns([1, 2, 1])
-    with col_b:
-        setup_provider = st.radio("Select Provider", ["gemini", "groq"], index=0 if st.session_state.provider=="gemini" else 1, horizontal=True)
-        if setup_provider != st.session_state.provider:
-            st.session_state.provider = setup_provider
-            st.rerun()
-
-        if setup_provider == "gemini":
-            api_key_input = st.text_input(
-                "Google Gemini API Key",
-                type="password",
-                placeholder="AIza...",
-                help="Get your free key at https://aistudio.google.com/apikey",
-            )
-            link_url = "https://aistudio.google.com/apikey"
-            ls_key = "langgraph_chatbot_gemini_key"
-        else:
-            api_key_input = st.text_input(
-                "Groq API Key",
-                type="password",
-                placeholder="gsk_...",
-                help="Get your free key at https://console.groq.com/keys",
-            )
-            link_url = "https://console.groq.com/keys"
-            ls_key = "langgraph_chatbot_groq_key"
-            
-        st.markdown(
-            "<div style='text-align:center; color:#6b7280; font-size:0.8rem; margin-top:-0.5rem; margin-bottom:1rem;'>"
-            "🔒 Saved locally in your browser only — never sent to any server"
-            "</div>",
-            unsafe_allow_html=True
-        )
-        if st.button("✅ Save & Start Chatting", use_container_width=True):
-            if api_key_input.strip():
-                key_val = api_key_input.strip()
-                encoded = base64.b64encode(key_val.encode()).decode()
-
-                if setup_provider == "gemini":
-                    st.session_state.google_api_key = key_val
-                    st.session_state.gemini_key_confirmed = True
-                    # Write into URL params so Python sees it after rerun
-                    st.query_params["_gemini_ls"] = encoded
-                else:
-                    st.session_state.groq_api_key = key_val
-                    st.session_state.groq_key_confirmed = True
-                    st.query_params["_groq_ls"] = encoded
-
-                st.session_state.forget_key_clicked = False
-
-                # Also save to localStorage so it survives future page loads
-                save_js = f"""
-                <script>
-                localStorage.setItem('{ls_key}', atob('{encoded}'));
-                </script>
-                """
-                components.html(save_js, height=0)
-                st.rerun()
-            else:
-                st.error("Please enter a valid API key.")
-        st.markdown(
-            f"<div style='text-align:center; margin-top:1rem;'>"
-            f"<a href='{link_url}' target='_blank' "
-            f"style='color:#10a37f; font-size:0.85rem;'>Get a free API key →</a>"
-            f"</div>",
-            unsafe_allow_html=True
-        )
-    st.stop()   # Don't render the rest of the app until key is set
-
-
+# ── Dynamic model fetching ────────────────────────────────────────────────────
 @st.cache_data(ttl=3600)
 def fetch_available_models(api_key: str, provider: str):
     """Dynamically fetches all available models for the given provider."""
@@ -519,7 +314,7 @@ def fetch_available_models(api_key: str, provider: str):
             print(f"[API] Could not fetch Groq models: {e}")
         from config import get_available_groq_models
         return get_available_groq_models()
-    
+
     else:
         # Gemini
         if not api_key:
@@ -529,8 +324,8 @@ def fetch_available_models(api_key: str, provider: str):
             res = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}")
             data = res.json()
             models = [
-                m['name'].replace('models/', '') 
-                for m in data.get('models', []) 
+                m['name'].replace('models/', '')
+                for m in data.get('models', [])
                 if 'generateContent' in m.get('supportedGenerationMethods', [])
             ]
             gemini_models = sorted([m for m in models if "gemini" in m], reverse=True)
@@ -538,7 +333,7 @@ def fetch_available_models(api_key: str, provider: str):
                 return gemini_models
         except Exception as e:
             print(f"[API] Could not fetch Gemini models: {e}")
-        
+
         from config import get_available_models
         return get_available_models()
 
@@ -563,9 +358,7 @@ def update_profile_from_session(history: list):
         return
     try:
         from config import get_llm
-        prov = st.session_state.provider
-        ak = st.session_state.google_api_key if prov == "gemini" else st.session_state.groq_api_key
-        profile_llm = get_llm(api_key=ak, provider=prov)
+        profile_llm = get_llm(provider=st.session_state.provider)
         session_text = ""
         for m in history:
             role = "User" if m["role"] == "user" else "Assistant"
@@ -591,22 +384,21 @@ with st.sidebar:
         st.session_state.active_session = new_id
         st.session_state.total_messages = 0
         st.session_state.total_searches = 0
-        st.session_state.input_counter += 1
         st.rerun()
 
     st.markdown("---")
 
     # ── LLM Provider & Model Selector ─────────────────────────────────────────
     st.markdown("### 🧠 LLM Settings")
-    
+
     new_provider = st.radio("Provider", ["gemini", "groq"], index=0 if st.session_state.provider=="gemini" else 1, horizontal=True)
     if new_provider != st.session_state.provider:
         st.session_state.provider = new_provider
         st.rerun()
 
-    ak = st.session_state.google_api_key if st.session_state.provider == "gemini" else st.session_state.groq_api_key
+    ak = get_api_key(st.session_state.provider)
     available_models = fetch_available_models(ak, st.session_state.provider)
-    
+
     # Use the appropriate session state variable for the selected provider
     if st.session_state.provider == "gemini":
         if st.session_state.selected_model not in available_models:
@@ -616,7 +408,7 @@ with st.sidebar:
         if st.session_state.selected_groq_model not in available_models:
             st.session_state.selected_groq_model = available_models[0]
         current_idx = available_models.index(st.session_state.selected_groq_model)
-    
+
     chosen_model = st.selectbox(
         "Model",
         options=available_models,
@@ -624,7 +416,7 @@ with st.sidebar:
         label_visibility="collapsed",
         help="Select which model to use for responses",
     )
-    
+
     if st.session_state.provider == "gemini":
         if chosen_model != st.session_state.selected_model:
             st.session_state.selected_model = chosen_model
@@ -663,7 +455,6 @@ with st.sidebar:
                 st.session_state.total_searches = sum(
                     1 for m in h if m.get("used_search") and m["role"] == "ai"
                 )
-                st.session_state.input_counter += 1
                 st.rerun()
         with col_del:
             if st.button("🗑️", key=f"del_btn_{sid}", help="Delete this chat"):
@@ -677,7 +468,6 @@ with st.sidebar:
                     st.session_state.total_messages = 0
                     st.session_state.total_searches = 0
                 save_sessions_to_disk()
-                st.session_state.input_counter += 1
                 st.rerun()
 
     st.markdown("---")
@@ -710,39 +500,7 @@ with st.sidebar:
         get_active_session()["history"] = []
         st.session_state.total_messages = 0
         st.session_state.total_searches = 0
-        st.session_state.input_counter += 1
         st.success("Chat cleared!")
-        st.rerun()
-
-    # Forget API Key button
-    if st.button("🔑 Forget API Key", use_container_width=True, help="Clear your saved API key and re-enter it"):
-        if st.session_state.provider == "gemini":
-            st.session_state.google_api_key = None
-            st.session_state.gemini_key_confirmed = False
-            forget_js = """
-            <script>
-            localStorage.removeItem('langgraph_chatbot_gemini_key');
-            const url = new URL(window.location.href);
-            url.searchParams.delete('_gemini_ls');
-            url.searchParams.delete('_gemini_loaded');
-            window.history.replaceState({}, '', url.toString());
-            </script>
-            """
-        else:
-            st.session_state.groq_api_key = None
-            st.session_state.groq_key_confirmed = False
-            forget_js = """
-            <script>
-            localStorage.removeItem('langgraph_chatbot_groq_key');
-            const url = new URL(window.location.href);
-            url.searchParams.delete('_groq_ls');
-            url.searchParams.delete('_groq_loaded');
-            window.history.replaceState({}, '', url.toString());
-            </script>
-            """
-            
-        st.session_state.forget_key_clicked = True
-        components.html(forget_js, height=0)
         st.rerun()
 
     st.markdown("---")
@@ -765,7 +523,9 @@ st.markdown("""
 st.markdown("---")
 
 # ── Chat History Display ──────────────────────────────────────────────────────
-if not get_active_session()["history"]:
+history = get_active_session()["history"]
+
+if not history:
     st.markdown("""
     <div style="text-align: center; color: #6b7280; padding: 3rem 0;">
         <div style="font-size: 3rem; margin-bottom: 1rem;">💬</div>
@@ -777,77 +537,78 @@ if not get_active_session()["history"]:
         </div>
     </div>
     """, unsafe_allow_html=True)
-else:
-    for msg in get_active_session()["history"]:
-        if msg["role"] == "user":
-            st.markdown(f'<div class="sender-label user">👤 YOU</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="user-bubble">{msg["content"]}</div>', unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div class="sender-label ai">🤖 ASSISTANT</div>', unsafe_allow_html=True)
-            if msg.get("used_search"):
-                st.markdown('<div class="search-badge">🔍 Web Search Used</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="ai-bubble">{msg["content"]}</div>', unsafe_allow_html=True)
-        st.markdown("<div style='margin-bottom: 0.5rem;'></div>", unsafe_allow_html=True)
 
-st.markdown("---")
+for msg in history:
+    role = "assistant" if msg["role"] == "ai" else "user"
+    avatar = "🤖" if role == "assistant" else "👤"
+    with st.chat_message(role, avatar=avatar):
+        if msg.get("used_search") and role == "assistant":
+            st.caption("🔍 Web Search Used")
+        st.markdown(msg["content"])
 
-# ── Input Area ────────────────────────────────────────────────────────────────
-col_input, col_btn = st.columns([5, 1])
+# ── Chat Input (pinned at bottom, sends on Enter) ────────────────────────────
+if prompt := st.chat_input("Type your message and press Enter..."):
+    # Display user message immediately
+    with st.chat_message("user", avatar="👤"):
+        st.markdown(prompt)
 
-
-def on_enter():
-    """Called by Streamlit when the user presses Enter inside the text box."""
-    st.session_state.submitted = True
-
-
-with col_input:
-    user_input = st.text_input(
-        label="Message",
-        placeholder="Type your message and press Enter or click Send ➤",
-        label_visibility="collapsed",
-        key=f"user_input_{st.session_state.input_counter}",
-        on_change=on_enter,
-    )
-with col_btn:
-    send_clicked = st.button("Send ➤", use_container_width=True)
-
-# ── Handle Send ───────────────────────────────────────────────────────────────
-if (send_clicked or st.session_state.submitted) and user_input.strip():
-    st.session_state.submitted = False
-    user_message = user_input.strip()
-
-    # Add user message to the active session
+    # Add user message to history
     get_active_session()["history"].append({
         "role": "user",
-        "content": user_message,
+        "content": prompt,
         "used_search": False,
     })
     st.session_state.total_messages += 1
 
-    # ── Call the LangGraph chatbot ────────────────────────────────────────────
-    with st.spinner("🤔 Thinking..."):
-        if run_chat_fn is None:
-            ai_response = "❌ Error: LangGraph could not be loaded. Check your .env file."
-            used_search = False
-        else:
-            try:
-                active_mod = st.session_state.selected_model if st.session_state.provider == "gemini" else st.session_state.selected_groq_model
-                active_ak = st.session_state.google_api_key if st.session_state.provider == "gemini" else st.session_state.groq_api_key
-                
+    # ── Generate AI response ──────────────────────────────────────────────────
+    ai_response = ""
+    used_search = False
+
+    if run_chat_fn is None:
+        ai_response = "❌ Error: LangGraph could not be loaded. Check your configuration."
+        with st.chat_message("assistant", avatar="🤖"):
+            st.error(ai_response)
+    else:
+        try:
+            active_mod = (
+                st.session_state.selected_model
+                if st.session_state.provider == "gemini"
+                else st.session_state.selected_groq_model
+            )
+
+            # Spinner shows OUTSIDE chat_message so it doesn't block streaming
+            with st.spinner("🤔 Thinking..."):
                 result = run_chat_fn(
-                    user_message=user_message,
+                    user_message=prompt,
                     session_id=st.session_state.active_session,
                     model=active_mod,
-                    api_key=active_ak,
-                    provider=st.session_state.provider
+                    provider=st.session_state.provider,
                 )
-                ai_response = result["response"]
-                used_search = result["used_search"]
-            except Exception as e:
-                full_trace = traceback.format_exc()
-                print(f"[ERROR] {full_trace}")
-                ai_response = f"❌ Error: {str(e)}\n\n```\n{full_trace}\n```"
-                used_search = False
+
+            ai_response = result["response"]
+            used_search = result["used_search"]
+
+            # Now stream inside the assistant bubble
+            with st.chat_message("assistant", avatar="🤖"):
+                if used_search:
+                    st.caption("🔍 Web Search Used")
+
+                # ── Stream the response word-by-word (ChatGPT-style) ──────────
+                message_placeholder = st.empty()
+                full_response = ""
+                for word in ai_response.split(' '):
+                    full_response += word + ' '
+                    message_placeholder.markdown(full_response + "▌")
+                    time.sleep(0.04)
+                # Final render — remove cursor
+                message_placeholder.markdown(full_response.strip())
+
+        except Exception as e:
+            full_trace = traceback.format_exc()
+            print(f"[ERROR] {full_trace}")
+            ai_response = f"❌ Error: {str(e)}"
+            with st.chat_message("assistant", avatar="🤖"):
+                st.error(ai_response)
 
     # Add AI reply to history
     get_active_session()["history"].append({
@@ -861,24 +622,20 @@ if (send_clicked or st.session_state.submitted) and user_input.strip():
         st.session_state.total_searches += 1
 
     # ── Auto-rename chat after the very first exchange ────────────────────────
-    history = get_active_session()["history"]
-    if len(history) == 2 and get_active_session()["name"] == "New Chat":
-        # First user message + first AI response → generate a smart title
-        active_ak = st.session_state.google_api_key if st.session_state.provider == "gemini" else st.session_state.groq_api_key
+    current_history = get_active_session()["history"]
+    if len(current_history) == 2 and get_active_session()["name"] == "New Chat":
         auto_rename_chat(
             session_id=st.session_state.active_session,
-            first_user_msg=history[0]["content"],
-            first_ai_msg=history[1]["content"],
-            api_key=active_ak,
-            provider=st.session_state.provider
+            first_user_msg=current_history[0]["content"],
+            first_ai_msg=current_history[1]["content"],
+            provider=st.session_state.provider,
         )
 
     # ── Update user profile every 4 exchanges (8 messages) ───────────────────
     if st.session_state.total_messages % 8 == 0 and st.session_state.total_messages > 0:
         try:
             from config import get_llm
-            active_ak = st.session_state.google_api_key if st.session_state.provider == "gemini" else st.session_state.groq_api_key
-            profile_llm = get_llm(api_key=active_ak, provider=st.session_state.provider)
+            profile_llm = get_llm(provider=st.session_state.provider)
             recent_history = get_active_session()["history"][-12:]
             recent_text = ""
             for m in recent_history:
@@ -892,5 +649,3 @@ if (send_clicked or st.session_state.submitted) and user_input.strip():
             print(f"[Profile] Update failed: {e}")
 
     save_sessions_to_disk()
-    st.session_state.input_counter += 1
-    st.rerun()
