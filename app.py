@@ -148,6 +148,31 @@ st.markdown("""
     #MainMenu { visibility: hidden; }
     footer    { visibility: hidden; }
     header    { visibility: hidden; }
+
+    /* Always show the sidebar toggle button — even when sidebar is collapsed */
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        position: fixed !important;
+        top: 50% !important;
+        left: 0 !important;
+        transform: translateY(-50%) !important;
+        z-index: 9999 !important;
+        background: #10a37f !important;
+        border-radius: 0 8px 8px 0 !important;
+        padding: 0.5rem 0.4rem !important;
+        box-shadow: 2px 0 12px rgba(16,163,127,0.4) !important;
+        transition: background 0.2s ease !important;
+        cursor: pointer !important;
+    }
+    [data-testid="collapsedControl"]:hover {
+        background: #0d8f6e !important;
+    }
+    [data-testid="collapsedControl"] svg {
+        fill: white !important;
+        color: white !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
