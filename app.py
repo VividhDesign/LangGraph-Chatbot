@@ -149,32 +149,30 @@ st.markdown("""
     footer    { visibility: hidden; }
     header    { visibility: hidden; }
 
-    /* Always show the sidebar toggle button — even when sidebar is collapsed */
-    [data-testid="collapsedControl"] {
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        position: fixed !important;
-        top: 50% !important;
-        left: 0 !important;
-        transform: translateY(-50%) !important;
-        z-index: 9999 !important;
-        background: #10a37f !important;
-        border-radius: 0 8px 8px 0 !important;
-        padding: 0.5rem 0.4rem !important;
-        box-shadow: 2px 0 12px rgba(16,163,127,0.4) !important;
-        transition: background 0.2s ease !important;
-        cursor: pointer !important;
-    }
-    [data-testid="collapsedControl"]:hover {
-        background: #0d8f6e !important;
-    }
-    [data-testid="collapsedControl"] svg {
-        fill: white !important;
-        color: white !important;
+    /* Hide the << collapse button — it's not needed and causes confusion */
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="stSidebarHeader"] button,
+    [data-testid="stSidebar"] button[data-testid="stBaseButton-header"],
+    [data-testid="stSidebar"] [data-testid="baseButton-header"] {
+        display: none !important;
     }
 </style>
 """, unsafe_allow_html=True)
+
+# Force sidebar open: Streamlit 1.50 saves collapsed state in localStorage.
+# st.components.v1.html actually runs JS (unlike st.markdown which strips scripts).
+import streamlit.components.v1 as components
+components.html("""
+<script>
+// Clear any saved "sidebar collapsed" state from localStorage
+Object.keys(localStorage).forEach(key => {
+    if (key.startsWith('stSidebarCollapsed')) {
+        localStorage.removeItem(key);
+    }
+});
+</script>
+""", height=0, width=0)
+
 
 
 # ── API Key Helper ────────────────────────────────────────────────────────────
